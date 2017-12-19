@@ -1,0 +1,13 @@
+
+version: '3'
+services:
+  bitcoind:
+    build:
+        context: .
+        dockerfile: Dockerfile
+    image: dunamu/bitcoin:v1
+    ports:
+     - "8332:8332"
+    volumes:
+     - ../bitcoin:/bitcoin
+

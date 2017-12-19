@@ -1,0 +1,142 @@
+* 도커 이미지 시작
+
+비트코인 데몬의 경우에는 공식적인 도커 이미지를 배포하지는 않기 때문에 이미지를 직접 구성했다.
+도커 이미지는 제공하지 않지만 ubuntu ppa 로는 제공하므로 해당 저장소 이미지를 이용해서
+dockernize 시킨다.
+
+#+BEGIN_SRC 
+https://bitcoin.org/en/bitcoin-core/
+https://bitcoin.org/en/download
+https://brekken.com/running-the-bitcoin-core-daemon-as-a-docker-container-7d290affa56b
+#+END_SRC
+
+최신버전의 도커 엔진 설치는 아래를 참고해서 진행하자
+각 배포판에 준비된 기본 이미지는 최신 버전이 아니다.
+
+#+BEGIN_SRC 
+https://docs.docker.com/engine/installation/linux/docker-ce/ubuntu/#recommended-extra-packages-for-trusty-1404
+#+END_SRC
+
+
+* 도커 엔진 설치 (호스트에 설치해야함)
+#+BEGIN_SRC bash
+#####################################################################################################################################
+# 도커 엔진 설치 (호스트에 설치해야함)
+#####################################################################################################################################
+sudo apt-get remove docker docker-engine docker.io
+
+sudo apt-get install \
+    apt-transport-https \
+    ca-certificates \
+    curl \
+    software-properties-common
+
+curl -fsSL https://download.docker.com/linux/ubuntu/gpg | sudo apt-key add -
+
+sudo apt-key fingerprint 0EBFCD88
+
+sudo add-apt-repository \
+   "deb [arch=amd64] https://download.docker.com/linux/ubuntu \
+   $(lsb_release -cs) \
+   stable"
+
+sudo apt-get update
+
+sudo apt-get install docker-ce
+#+END_SRC
+
+* Docker Compose 설치
+#+BEGIN_SRC bash
+#####################################################################################################################################
+# Docker Compose 설치
+# https://github.com/docker/compose/releases
+#####################################################################################################################################
+sudo -i
+curl -L https://github.com/docker/compose/releases/download/1.16.0/docker-compose-`uname -s`-`uname -m` > /usr/local/bin/docker-compose
+chmod +x /usr/local/bin/docker-compose
+#+END_SRC
+
+* 비트코인 도커 이미지 빌드
+#+BEGIN_SRC bash
+#####################################################################################################################################
+# 비트코인 도커 이미지 빌드
+# 
+# production 환경의 이미지 경량화를 위해서는 software-properties 는 설치하지 않는 방향으로 변형시키는게 좋을 것 같음
+# 일단 테스트셋이니 이렇게~
+# 
+# 빌드 속도의 문제가 있으니 dist repository 는 한국 mirror를 이용하도록 수정한다.
+# 
+# Docker build 는 단위 커맨드마다 commit 이 이루어지는 구조이므로, 차후 rebuild 시에는 이런 요소를 고려해야 작업이 편리하다.
+#####################################################################################################################################
+# Git Repository 설정
+mkdir ~/workspace/dunamu/crypto-currency.bitcoind
+git init
+git flow init
+
+# Dockerfilie 작성
+# https://docs.docker.com/compose/gettingstarted/#step-2-create-a-dockerfile
+echo "
+FROM ubuntu
+RUN \
+    sed -i -e 's/archive\.ubuntu\.com/kr\.archive\.ubuntu\.com/g' /etc/apt/sources.list && \
+    apt-get update
+
+RUN \
+    apt-get install -y software-properties-common python-software-properties
+
+RUN \
+    add-apt-repository ppa:bitcoin/bitcoin && \
+    apt-get update && \
+    apt-get install -y bitcoind && \
+    mkdir -p /bitcoin
+
+RUN \
+    apt-get remove -y software-properties-common python-software-properties && \
+    apt-get autoremove -y
+
+CMD [\"/usr/bin/bitcoind\", \"-datadir=/bitcoin\", \"--printtoconsole\"]
+" | tee ./Dockerfile
+#+END_SRC
+
+* docker-compose.yml 작성
+#+BEGIN_SRC bash
+#####################################################################################################################################
+# docker-compose.yml 작성
+# https://docs.docker.com/compose/gettingstarted/#step-2-create-a-dockerfile
+# 
+# Docker 엔진 버전에 따라 버전을 구분해서 명시해야하니 아래를 참고하자.
+# docker-compose.yml 은 docker 로 서비스를 구성하기 위한 다양한 옵션을 제공하니 해당 옵션을 파악하기 위해서는 아래의 
+# 다큐멘테이션을 반드시 확인하자. (생각보다 옵션이 다양하고 괜찮음)
+# https://docs.docker.com/compose/compose-file
+#####################################################################################################################################
+echo "
+version: '3'
+services:
+  bitcoind:
+    build:
+        context: .
+        dockerfile: Dockerfile
+    image: dunamu/bitcoin:v1
+    ports:
+     - \"8332:8332\"
+    volumes:
+     - /opt/bitcoin:/bitcoin
+" | tee docker-compose.yml
+#+END_SRC
+
+* Docker-Compose 를 이용한 컨테이너 빌드 및 기동
+#+BEGIN_SRC bash
+#####################################################################################################################################
+# Docker-Compose 를 이용한 컨테이너 빌드 및 기동
+# https://docs.docker.com/compose/gettingstarted/#step-8-experiment-with-some-other-commands
+# 
+#####################################################################################################################################
+docker-compose build
+docker-compose up -d
+
+# 상태확인
+docker-compose ps
+docker-compose top
+docker-compose logs -f bitcoind | more
+docker-compose port bitcoind 8332
+#+END_SRC
